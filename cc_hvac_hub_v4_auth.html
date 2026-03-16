@@ -1,0 +1,838 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif}
+.modal-overlay{position:fixed;inset:0;background:rgba(10,18,50,0.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.modal{background:white;border-radius:12px;padding:26px 28px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.2)}
+.modal-lg{max-width:680px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.form-row.full{grid-template-columns:1fr}
+.field label{display:block;font-size:11px;font-weight:600;color:#6B7A99;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.field input,.field select,.field textarea{width:100%;padding:7px 10px;border:1px solid #D0D9EC;border-radius:6px;font-size:13px;font-family:inherit;outline:none;color:#1B2454;background:white}
+.field input:focus,.field select:focus{border-color:#4472C4;box-shadow:0 0 0 2px rgba(68,114,196,0.12)}
+.field textarea{min-height:60px;resize:vertical}
+.btn{padding:7px 15px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .13s}
+.btn-primary{background:#4472C4;color:white}.btn-primary:hover{background:#3060B0}
+.btn-danger{background:#C62828;color:white}.btn-danger:hover{background:#B71C1C}
+.btn-ghost{background:transparent;color:#6B7A99;border:1px solid #D0D9EC}.btn-ghost:hover{background:#F0F4FA}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn-icon{padding:3px 7px;font-size:12px;background:transparent;border:1px solid #E0E7F0;border-radius:5px;cursor:pointer;color:#6B7A99;font-family:inherit}.btn-icon:hover{background:#F0F4FA}
+.proj-card{background:white;border-radius:10px;border:1px solid #E2E9F5;cursor:pointer;transition:all .16s;overflow:hidden}
+.proj-card:hover{border-color:#4472C4;box-shadow:0 4px 16px rgba(68,114,196,0.13);transform:translateY(-2px)}
+.tab-btn{padding:8px 16px;border:none;background:transparent;cursor:pointer;font-size:13px;font-weight:500;color:#8A95AD;border-bottom:2px solid transparent;font-family:inherit;transition:all .13s}
+.tab-btn.active{color:#1B2454;border-bottom-color:#4472C4;font-weight:700}
+.perm-table{width:100%;border-collapse:collapse;font-size:12px}
+.perm-table th{padding:7px 10px;text-align:left;background:#F6F9FF;color:#6B7A99;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #E8EDF5}
+.perm-table td{padding:7px 10px;border-bottom:1px solid #F0F4FA;color:#3A4A6B}
+.perm-table tr:last-child td{border-bottom:none}
+input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#4472C4}
+tr.hover-row:hover td{background:#F6F9FF}
+</style>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useRef}=React;
+const NAVY='#1B2454',BLUE='#4472C4',LB='#EBF1FA';
+
+// ── PERMISSION HELPERS ──
+const can=(u,mod,act)=>{if(!u)return false;if(u.role==='Admin')return true;return !!(u?.permissions?.modules?.[mod]?.[act]);};
+const projOk=(u,pid)=>{if(!u||u.role==='Admin')return true;const pa=u?.permissions?.projectAccess;if(pa==='all')return true;return Array.isArray(pa)&&pa.includes(pid);};
+const fileOk=(u,dt)=>{if(!u||u.role==='Admin')return true;const fa=u?.permissions?.fileAccess;if(fa==='all')return true;return Array.isArray(fa)&&fa.includes(dt);};
+
+const DEFAULT_PERMS=()=>({modules:{dashboard:{view:true},projects:{view:true,edit:false},inventory:{view:true,edit:false},pulls:{view:false,edit:false},crew:{view:false,edit:false},documents:{view:true,upload:false,delete:false}},projectAccess:'all',fileAccess:'all'});
+const nextId=arr=>arr.length?Math.max(...arr.map(x=>x.id))+1:1;
+const ini=n=>(n||'?').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase();
+const fmtSz=b=>{if(!b)return '';if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';};
+
+const initUsers=[
+  {id:1,username:'admin',password:'Admin@CC2025',name:'Site Admin',role:'Admin',permissions:{modules:{dashboard:{view:true},projects:{view:true,edit:true},inventory:{view:true,edit:true},pulls:{view:true,edit:true},crew:{view:true,edit:true},documents:{view:true,upload:true,delete:true}},projectAccess:'all',fileAccess:'all'}},
+  {id:2,username:'dcastillo',password:'PM@1234',name:'Dave Castillo',role:'Project Manager',permissions:{modules:{dashboard:{view:true},projects:{view:true,edit:true},inventory:{view:true,edit:true},pulls:{view:true,edit:true},crew:{view:true,edit:false},documents:{view:true,upload:true,delete:false}},projectAccess:'all',fileAccess:'all'}},
+  {id:3,username:'mreyes',password:'Fore@1234',name:'Mike Reyes',role:'Foreman',permissions:{modules:{dashboard:{view:true},projects:{view:true,edit:false},inventory:{view:true,edit:false},pulls:{view:true,edit:true},crew:{view:true,edit:false},documents:{view:true,upload:true,delete:false}},projectAccess:[1,4],fileAccess:'all'}},
+  {id:4,username:'jlee',password:'Tech@1234',name:'Jake Lee',role:'Field Technician',permissions:{modules:{dashboard:{view:true},projects:{view:true,edit:false},inventory:{view:true,edit:false},pulls:{view:false,edit:false},crew:{view:false,edit:false},documents:{view:true,upload:false,delete:false}},projectAccess:[1,3],fileAccess:['Drawings','Submittals','Photos']}},
+  {id:5,username:'guest',password:'Guest@1234',name:'Guest User',role:'Guest',permissions:{modules:{dashboard:{view:true},projects:{view:true,edit:false},inventory:{view:false,edit:false},pulls:{view:false,edit:false},crew:{view:false,edit:false},documents:{view:true,upload:false,delete:false}},projectAccess:'all',fileAccess:['Drawings']}},
+];
+
+const initProjects=[
+  {id:1,name:'Meridian Office Tower',subtitle:'Floors 12–18 HVAC',jobNum:'CC-2024-041',customer:'Blackstone Construction',address:'1200 W Adams St, Chicago, IL',pm:'Dave Castillo',foreman:'Mike Reyes',start:'2024-11-01',end:'2025-04-15',status:'In Progress',crew:'Mike Reyes,Tom Briggs,Jake Lee,Sam Ortiz',notes:'VAV system install, 6 RTUs, BAS integration with JCI Metasys.',tasks:[{id:1,title:'Install RTU-3 curb adapter',assignee:'Mike Reyes',priority:'High',status:'In Progress',due:'2025-03-20',location:'Roof Level 18'},{id:2,title:'BAS point-to-point verification',assignee:'Dana Park',priority:'Critical',status:'Open',due:'2025-03-25',location:'MER 12'},{id:3,title:'Duct pressure test Zone 14B',assignee:'Tom Briggs',priority:'Medium',status:'Complete',due:'2025-03-15',location:'Floor 14'}],submittals:[{id:1,name:'Trane RTU Equipment Submittal',type:'Equipment',status:'Approved',date:'2024-10-15'},{id:2,name:'JCI Metasys BAS Controls',type:'Controls',status:'Approved',date:'2024-10-28'},{id:3,name:'VAV Box Schedule',type:'Schedule',status:'Revise & Resubmit',date:'2025-01-20'}],files:[]},
+  {id:2,name:'Springfield Logistics Hub',subtitle:'Phase 2 – Makeup Air & Exhaust',jobNum:'CC-2025-003',customer:'TerraGroup LLC',address:'4400 Sangamon Ave, Springfield, IL',pm:'Dave Castillo',foreman:'Chris Hanson',start:'2025-01-15',end:'2025-06-30',status:'In Progress',crew:'Chris Hanson,Luis Vega,Dana Park',notes:'Warehouse makeup air units and exhaust systems.',tasks:[{id:1,title:'MAU-1 rigging and set',assignee:'Chris Hanson',priority:'Critical',status:'Open',due:'2025-03-22',location:'Roof'}],submittals:[{id:1,name:'Makeup Air Unit Submittal',type:'Equipment',status:'Approved',date:'2024-12-10'}],files:[]},
+  {id:3,name:'Lincoln Medical Center',subtitle:'Wing B – DOAS & OR Systems',jobNum:'CC-2024-029',customer:'OSF HealthCare',address:'701 N First St, Springfield, IL',pm:'Sarah Bloom',foreman:'Tony Marsh',start:'2024-08-01',end:'2025-01-31',status:'Punch List',crew:'Tony Marsh,Jake Lee,Rosa Fuentes',notes:'Pressurization, OR air handling, DOAS units.',tasks:[{id:1,title:'OR-2 supply diffuser alignment',assignee:'Tony Marsh',priority:'High',status:'Open',due:'2025-03-20',location:'OR Suite 2'},{id:2,title:'Balance report final submission',assignee:'Tony Marsh',priority:'Critical',status:'Open',due:'2025-03-25',location:'All'}],submittals:[{id:1,name:'DOAS Unit Submittal',type:'Equipment',status:'Approved',date:'2024-07-01'},{id:2,name:'TAB Report Draft',type:'Report',status:'Revise & Resubmit',date:'2025-02-28'}],files:[]},
+  {id:4,name:'Decatur Distribution Center',subtitle:'Commercial Split Systems',jobNum:'CC-2025-007',customer:'Midwest Freight Inc.',address:'2800 N Water St, Decatur, IL',pm:'Dave Castillo',foreman:'',start:'2025-03-01',end:'2025-09-15',status:'Awarded',crew:'',notes:'Pending mechanical permit. 4 large commercial split systems.',tasks:[],submittals:[],files:[]},
+  {id:5,name:'City Hall Renovation',subtitle:'HVAC Upgrade Floors 1–4',jobNum:'CC-2024-018',customer:'City of Springfield',address:'300 S 7th St, Springfield, IL',pm:'Sarah Bloom',foreman:'Chris Hanson',start:'2024-06-01',end:'2024-12-20',status:'Complete',crew:'Chris Hanson,Luis Vega',notes:'Chiller replacement, new AHUs for floors 1-4.',tasks:[],submittals:[{id:1,name:'Chiller Equipment Submittal',type:'Equipment',status:'Approved',date:'2024-05-10'}],files:[]},
+  {id:6,name:'Carle Clinic – New Build',subtitle:'Full Mechanical Scope',jobNum:'CC-2025-011',customer:'Carle Health',address:'611 W Park St, Urbana, IL',pm:'Dave Castillo',foreman:'',start:'2025-05-01',end:'2026-02-28',status:'Bidding',crew:'',notes:'Full mechanical scope, 3-story medical office.',tasks:[],submittals:[],files:[]},
+];
+
+const initInventory=[
+  {id:1,logNum:'INV-001',item:'R-410A Refrigerant 25lb Cylinder',qty:12,project:'CC-2024-041 – Meridian Office Tower',dateReceived:'2025-02-14',vendor:'Johnstone Supply',manufacturer:'Honeywell'},
+  {id:2,logNum:'INV-002',item:'3/4" Copper Type L (20 ft sticks)',qty:87,project:'General / Shop Stock',dateReceived:'2025-02-20',vendor:'Ferguson HVAC',manufacturer:'Mueller Industries'},
+  {id:3,logNum:'INV-003',item:'Flex Duct 10" x 25ft',qty:18,project:'CC-2025-003 – Springfield Logistics Hub',dateReceived:'2025-03-01',vendor:'Winsupply',manufacturer:'Dundas Jafine'},
+  {id:4,logNum:'INV-004',item:'Honeywell T6 Pro Thermostat',qty:31,project:'CC-2024-041 – Meridian Office Tower',dateReceived:'2025-03-05',vendor:'Ferguson HVAC',manufacturer:'Honeywell'},
+  {id:5,logNum:'INV-005',item:'JCI Metasys FEC2611 Controller',qty:4,project:'CC-2024-041 – Meridian Office Tower',dateReceived:'2025-03-08',vendor:'Johnson Controls Direct',manufacturer:'Johnson Controls'},
+];
+
+const initPulls=[
+  {id:1,logNum:'PUL-001',item:'R-410A Refrigerant 25lb x2',pulledBy:'Mike Reyes',datePulled:'2025-03-10',project:'CC-2024-041 – Meridian Office Tower'},
+  {id:2,logNum:'PUL-002',item:'Flex Duct 10" x 25ft x6',pulledBy:'Chris Hanson',datePulled:'2025-03-12',project:'CC-2025-003 – Springfield Logistics Hub'},
+  {id:3,logNum:'PUL-003',item:'JCI Metasys FEC2611 x2',pulledBy:'Tom Briggs',datePulled:'2025-03-14',project:'CC-2024-041 – Meridian Office Tower'},
+];
+
+const initCrew=[
+  {id:1,name:'Dave Castillo',role:'Project Manager',phone:'(217) 555-0101',email:'dcastillo@cchvac.com',certs:'OSHA 30, EPA 608 Universal'},
+  {id:2,name:'Sarah Bloom',role:'Project Manager',phone:'(217) 555-0102',email:'sbloom@cchvac.com',certs:'OSHA 30, EPA 608 Universal'},
+  {id:3,name:'Mike Reyes',role:'Foreman',phone:'(217) 555-0103',email:'mreyes@cchvac.com',certs:'OSHA 10, EPA 608 Universal, Trane Certified'},
+  {id:4,name:'Chris Hanson',role:'Foreman',phone:'(217) 555-0104',email:'chanson@cchvac.com',certs:'OSHA 10, EPA 608 Type II'},
+  {id:5,name:'Tony Marsh',role:'Foreman',phone:'(217) 555-0105',email:'tmarsh@cchvac.com',certs:'OSHA 10, EPA 608 Universal'},
+  {id:6,name:'Tom Briggs',role:'Mechanic',phone:'(217) 555-0106',email:'tbriggs@cchvac.com',certs:'EPA 608 Type I'},
+  {id:7,name:'Jake Lee',role:'Mechanic',phone:'(217) 555-0107',email:'jlee@cchvac.com',certs:'EPA 608 Universal'},
+  {id:8,name:'Dana Park',role:'Controls Tech',phone:'(217) 555-0111',email:'dpark@cchvac.com',certs:'JCI Metasys Certified, EPA 608 Universal'},
+];
+
+const SC={
+  'Bidding':{bg:'#FFF3CD',color:'#856404',bar:'#F0A500'},
+  'Awarded':{bg:'#D1ECF1',color:'#0C5460',bar:'#17A2B8'},
+  'In Progress':{bg:'#CCE5FF',color:'#004085',bar:'#4472C4'},
+  'Punch List':{bg:'#FFE5D0',color:'#7E3400',bar:'#E67E22'},
+  'Complete':{bg:'#D4EDDA',color:'#155724',bar:'#28A745'},
+  'Closed':{bg:'#E2E3E5',color:'#383D41',bar:'#6C757D'},
+};
+const RC={
+  'Admin':{bg:'#FFE5D0',color:'#7E3400'},
+  'Project Manager':{bg:'#E8EDFF',color:'#2D3E9E'},
+  'Foreman':{bg:'#CCE5FF',color:'#004085'},
+  'Field Technician':{bg:'#D4EDDA',color:'#155724'},
+  'Guest':{bg:'#E2E3E5',color:'#383D41'},
+  'Office Staff':{bg:'#F3D9FA',color:'#6A0080'},
+};
+const PRIOC={'Critical':'#C62828','High':'#E67E22','Medium':'#4472C4','Low':'#6AAB9C'};
+const DOC_TYPES=['Drawings','Submittals','O&M Manuals','Permits','Inspection Reports','Change Orders','Photos','Other'];
+const PROJECTS_LIST=['CC-2024-041 – Meridian Office Tower','CC-2025-003 – Springfield Logistics Hub','CC-2024-029 – Lincoln Medical Center','CC-2025-007 – Decatur Distribution Center','CC-2024-018 – City Hall Renovation','CC-2025-011 – Carle Clinic','General / Shop Stock'];
+
+// ── UI ATOMS ──
+function SBadge({s}){const c=SC[s]||{bg:'#eee',color:'#555'};return React.createElement('span',{style:{background:c.bg,color:c.color,borderRadius:4,padding:'2px 8px',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}},s.toUpperCase());}
+function RBadge({r}){const c=RC[r]||{bg:'#eee',color:'#555'};return React.createElement('span',{style:{background:c.bg,color:c.color,borderRadius:4,padding:'2px 7px',fontSize:11,fontWeight:600}},r);}
+function Confirm({msg,onY,onN}){return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal',style:{maxWidth:360}},React.createElement('div',{style:{fontSize:15,fontWeight:700,color:NAVY,marginBottom:8}},'Confirm'),React.createElement('p',{style:{fontSize:13,color:'#5A6480',marginBottom:18,lineHeight:1.6}},msg),React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end'}},React.createElement('button',{className:'btn btn-ghost',onClick:onN},'Cancel'),React.createElement('button',{className:'btn btn-danger',onClick:onY},'Delete'))));}
+
+function LogoMark({size=28}){return React.createElement('svg',{width:size,height:size,viewBox:'0 0 100 100',fill:'none'},React.createElement('circle',{cx:50,cy:38,r:22,stroke:'white',strokeWidth:4,fill:'none'}),React.createElement('circle',{cx:50,cy:38,r:14,stroke:'white',strokeWidth:3,fill:'none'}),React.createElement('line',{x1:10,y1:58,x2:42,y2:58,stroke:'white',strokeWidth:4}),React.createElement('line',{x1:58,y1:58,x2:90,y2:58,stroke:'white',strokeWidth:4}));}
+
+// ── LOGIN ──
+function LoginScreen({users,onLogin}){
+  const [un,setUn]=useState('');const [pw,setPw]=useState('');const [show,setShow]=useState(false);const [err,setErr]=useState('');
+  const go=()=>{const u=users.find(x=>x.username===un&&x.password===pw);if(u)onLogin(u);else setErr('Invalid username or password.');};
+  const demos=[['Admin','admin','Admin@CC2025'],['Proj. Mgr','dcastillo','PM@1234'],['Foreman','mreyes','Fore@1234'],['Tech','jlee','Tech@1234'],['Guest','guest','Guest@1234']];
+  return React.createElement('div',{style:{minHeight:'100vh',background:NAVY,display:'flex',alignItems:'center',justifyContent:'center',padding:20}},
+    React.createElement('div',{style:{background:'white',borderRadius:14,padding:'36px 32px',width:340,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}},
+      React.createElement('div',{style:{textAlign:'center',marginBottom:24}},
+        React.createElement('div',{style:{width:60,height:60,background:NAVY,borderRadius:14,margin:'0 auto 10px',display:'flex',alignItems:'center',justifyContent:'center'}},React.createElement(LogoMark)),
+        React.createElement('div',{style:{fontSize:19,fontWeight:700,color:NAVY}},'C&C HVAC'),
+        React.createElement('div',{style:{fontSize:12,color:'#8A95AD',marginTop:2}},'Management Hub')
+      ),
+      React.createElement('div',{className:'field',style:{marginBottom:12}},
+        React.createElement('label',null,'Username'),
+        React.createElement('input',{value:un,onChange:e=>setUn(e.target.value),placeholder:'Enter username',onKeyDown:e=>e.key==='Enter'&&go()})
+      ),
+      React.createElement('div',{className:'field',style:{marginBottom:16}},
+        React.createElement('label',null,'Password'),
+        React.createElement('div',{style:{position:'relative'}},
+          React.createElement('input',{type:show?'text':'password',value:pw,onChange:e=>setPw(e.target.value),style:{paddingRight:44},onKeyDown:e=>e.key==='Enter'&&go()}),
+          React.createElement('button',{onClick:()=>setShow(!show),style:{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#8A95AD',fontSize:11,fontWeight:600}},show?'Hide':'Show')
+        )
+      ),
+      err&&React.createElement('div',{style:{color:'#C62828',fontSize:12,marginBottom:12,padding:'7px 10px',background:'#FFEBEE',borderRadius:6}},err),
+      React.createElement('button',{className:'btn btn-primary',style:{width:'100%',padding:10},onClick:go},'Sign In'),
+      React.createElement('div',{style:{marginTop:18,padding:'12px',background:'#F6F9FF',borderRadius:8,fontSize:11}},
+        React.createElement('div',{style:{fontWeight:700,color:NAVY,marginBottom:6}},'Demo Accounts:'),
+        demos.map(([r,u,p])=>React.createElement('div',{key:u,style:{display:'flex',gap:6,marginBottom:3,color:'#5A6480'}},
+          React.createElement('span',{style:{fontWeight:600,color:NAVY,width:64,flexShrink:0}},r+':'),
+          React.createElement('span',null,u+' / '+p)
+        ))
+      )
+    )
+  );
+}
+
+// ── SIDEBAR ──
+function Sidebar({active,setActive,user,onLogout}){
+  const items=[
+    {id:'dashboard',label:'Dashboard',icon:'⊞',mod:'dashboard'},
+    {id:'projects',label:'Projects',icon:'◼',mod:'projects'},
+    {id:'inventory',label:'Inventory',icon:'▦',mod:'inventory'},
+    {id:'pulls',label:'Inventory Pulls',icon:'▤',mod:'pulls'},
+    {id:'crew',label:'Crew & Personnel',icon:'◉',mod:'crew'},
+    {id:'documents',label:'Documents',icon:'▣',mod:'documents'},
+  ];
+  const visible=items.filter(i=>can(user,i.mod,'view'));
+  const rc=RC[user?.role]||{bg:'#E2E3E5',color:'#555'};
+  return React.createElement('div',{style:{width:210,minWidth:210,background:NAVY,display:'flex',flexDirection:'column',height:'100vh',position:'sticky',top:0}},
+    React.createElement('div',{style:{padding:'16px 14px 14px',borderBottom:'1px solid rgba(255,255,255,0.1)'}},
+      React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        React.createElement(LogoMark),
+        React.createElement('div',null,
+          React.createElement('div',{style:{color:'white',fontWeight:700,fontSize:14,lineHeight:1.2}},'C&C HVAC'),
+          React.createElement('div',{style:{color:'rgba(255,255,255,0.45)',fontSize:9,letterSpacing:'1px',textTransform:'uppercase'}},'Management Hub')
+        )
+      )
+    ),
+    React.createElement('nav',{style:{padding:'10px 8px',flex:1}},
+      visible.map(item=>React.createElement('div',{key:item.id,onClick:()=>setActive(item.id),style:{display:'flex',alignItems:'center',gap:9,padding:'8px 11px',borderRadius:6,marginBottom:2,cursor:'pointer',background:active===item.id?BLUE:'transparent',color:active===item.id?'white':'rgba(255,255,255,0.6)',fontWeight:active===item.id?600:400,fontSize:13}},
+        React.createElement('span',{style:{fontSize:13}},item.icon),item.label
+      )),
+      user?.role==='Admin'&&React.createElement('div',{onClick:()=>setActive('users'),style:{display:'flex',alignItems:'center',gap:9,padding:'8px 11px',borderRadius:6,marginBottom:2,cursor:'pointer',background:active==='users'?BLUE:'transparent',color:active==='users'?'white':'rgba(255,255,255,0.6)',fontWeight:active==='users'?600:400,fontSize:13}},
+        React.createElement('span',{style:{fontSize:13}},'⚙'),'\u00A0User Management'
+      )
+    ),
+    React.createElement('div',{style:{padding:'12px 12px',borderTop:'1px solid rgba(255,255,255,0.1)'}},
+      React.createElement('div',{style:{marginBottom:8}},
+        React.createElement('div',{style:{color:'white',fontSize:12,fontWeight:600}},user?.name),
+        React.createElement('span',{style:{...rc,borderRadius:4,padding:'1px 7px',fontSize:10,fontWeight:600,marginTop:3,display:'inline-block'}},user?.role)
+      ),
+      React.createElement('button',{onClick:onLogout,style:{background:'rgba(255,255,255,0.1)',border:'none',color:'rgba(255,255,255,0.7)',borderRadius:5,padding:'5px 10px',fontSize:11,cursor:'pointer',width:'100%'},'fontFamily':'inherit'},'Sign Out')
+    )
+  );
+}
+
+// ── DASHBOARD ──
+function Dashboard({projects,inventory,pulls,user}){
+  const myProjs=projects.filter(p=>projOk(user,p.id));
+  const active=myProjs.filter(p=>p.status==='In Progress').length;
+  const punch=myProjs.filter(p=>p.status==='Punch List').length;
+  const lowStock=inventory.filter(i=>Number(i.qty)<=5).length;
+  const pendingPulls=pulls.filter(p=>p.status==='Pending').length;
+  const card=(l,v,s,c)=>React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:8,padding:'14px 16px',borderTop:`3px solid ${c}`}},
+    React.createElement('div',{style:{color:'#6B7A99',fontSize:10,fontWeight:600,letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:5}},l),
+    React.createElement('div',{style:{fontSize:24,fontWeight:700,color:NAVY,lineHeight:1}},v),
+    React.createElement('div',{style:{color:'#8A95AD',fontSize:11,marginTop:3}},s)
+  );
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    React.createElement('div',{style:{marginBottom:20}},
+      React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'Dashboard'),
+      React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},'Welcome back, '+user?.name+'.')
+    ),
+    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:24}},
+      card('Active Jobs',active,'In progress',BLUE),
+      card('Punch List',punch,'Near completion','#F0A500'),
+      card('Low Stock',lowStock,'Items at/below 5','#C62828'),
+      card('Pending Pulls',pendingPulls,'Awaiting confirmation','#6A0080')
+    ),
+    React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:8,padding:'18px 20px'}},
+      React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:14,marginBottom:14}},'Active Projects'),
+      myProjs.filter(p=>['In Progress','Punch List','Awarded'].includes(p.status)).map(p=>
+        React.createElement('div',{key:p.id,style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:'1px solid #F0F4FA'}},
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontSize:13,fontWeight:600,color:'#2C3E70'}},p.name),
+            React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginTop:1}},p.jobNum+' · PM: '+p.pm)
+          ),
+          React.createElement(SBadge,{s:p.status})
+        )
+      )
+    )
+  );
+}
+
+// ── PROJECTS ──
+function ppct(tasks){if(!tasks?.length)return 0;return Math.round(tasks.filter(t=>t.status==='Complete').length/tasks.length*100);}
+function ProjectCard({proj,onClick,onEdit,onDelete,user}){
+  const sc=SC[proj.status]||{bg:'#eee',color:'#555',bar:'#ccc'};
+  const pct=ppct(proj.tasks);
+  const cr=proj.crew?proj.crew.split(',').map(s=>s.trim()).filter(Boolean):[];
+  const open=(proj.tasks||[]).filter(t=>t.status!=='Complete').length;
+  return React.createElement('div',{className:'proj-card',onClick:onClick},
+    React.createElement('div',{style:{height:4,background:sc.bar,borderRadius:'10px 10px 0 0'}}),
+    React.createElement('div',{style:{padding:'14px 16px'}},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:7}},
+        React.createElement('div',{style:{flex:1,paddingRight:8}},
+          React.createElement('div',{style:{fontSize:14,fontWeight:700,color:NAVY,lineHeight:1.3}},proj.name),
+          React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginTop:2}},proj.subtitle)
+        ),
+        React.createElement(SBadge,{s:proj.status})
+      ),
+      React.createElement('div',{style:{fontSize:11,color:'#6B7A99',fontWeight:600,marginBottom:9}},proj.jobNum,' · ',proj.customer),
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'5px 14px',marginBottom:10}},
+        React.createElement('div',null,React.createElement('div',{style:{fontSize:10,color:'#8A95AD',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:1}},'PM'),React.createElement('div',{style:{fontSize:12,color:'#3A4A6B',fontWeight:500}},proj.pm||'—')),
+        React.createElement('div',null,React.createElement('div',{style:{fontSize:10,color:'#8A95AD',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:1}},'Open Tasks'),React.createElement('div',{style:{fontSize:12,color:open>0?'#C05000':'#2E7D32',fontWeight:700}},open))
+      ),
+      proj.tasks?.length>0&&React.createElement('div',{style:{marginBottom:10}},
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:3}},
+          React.createElement('span',{style:{fontSize:10,color:'#8A95AD',textTransform:'uppercase',letterSpacing:'0.5px'}},'Progress'),
+          React.createElement('span',{style:{fontSize:10,fontWeight:700,color:NAVY}},pct+'%')
+        ),
+        React.createElement('div',{style:{height:4,background:'#E8EDF5',borderRadius:99,overflow:'hidden'}},
+          React.createElement('div',{style:{height:'100%',width:pct+'%',background:sc.bar,borderRadius:99}})
+        )
+      ),
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        React.createElement('div',{style:{display:'flex'}},
+          cr.slice(0,4).map((c,i)=>React.createElement('div',{key:i,title:c,style:{width:24,height:24,borderRadius:'50%',background:BLUE,border:'2px solid white',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:8,marginLeft:i>0?-7:0}},ini(c)))
+        ),
+        can(user,'projects','edit')&&React.createElement('div',{style:{display:'flex',gap:4},onClick:e=>e.stopPropagation()},
+          React.createElement('button',{className:'btn-icon',onClick:onEdit},'✏️'),
+          React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:onDelete},'🗑')
+        )
+      )
+    )
+  );
+}
+
+function ProjForm({initial,onSave,onClose}){
+  const blank={name:'',subtitle:'',jobNum:'',customer:'',address:'',pm:'',foreman:'',start:'',end:'',status:'Bidding',crew:'',notes:''};
+  const [f,setF]=useState(initial?{...blank,...initial}:blank);
+  const s=(k,v)=>setF(p=>({...p,[k]:v}));
+  return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal modal-lg'},
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}},React.createElement('h2',{style:{fontSize:16,fontWeight:700,color:NAVY}},(initial?'Edit':'Add')+' Project'),React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:onClose},'✕')),
+    React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Project Name'),React.createElement('input',{value:f.name,onChange:e=>s('name',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Subtitle'),React.createElement('input',{value:f.subtitle||'',onChange:e=>s('subtitle',e.target.value)}))),
+    React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Job Number'),React.createElement('input',{value:f.jobNum,onChange:e=>s('jobNum',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Customer / GC'),React.createElement('input',{value:f.customer,onChange:e=>s('customer',e.target.value)}))),
+    React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Site Address'),React.createElement('input',{value:f.address,onChange:e=>s('address',e.target.value)}))),
+    React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Project Manager'),React.createElement('input',{value:f.pm,onChange:e=>s('pm',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Foreman'),React.createElement('input',{value:f.foreman,onChange:e=>s('foreman',e.target.value)}))),
+    React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Start Date'),React.createElement('input',{type:'date',value:f.start,onChange:e=>s('start',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Status'),React.createElement('select',{value:f.status,onChange:e=>s('status',e.target.value)},['Bidding','Awarded','In Progress','Punch List','Complete','Closed'].map(x=>React.createElement('option',{key:x,value:x},x))))),
+    React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Crew (comma-separated)'),React.createElement('input',{value:f.crew,onChange:e=>s('crew',e.target.value)}))),
+    React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Notes'),React.createElement('textarea',{value:f.notes,onChange:e=>s('notes',e.target.value)}))),
+    React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}},React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:()=>onSave(f)},'Save Project'))
+  ));
+}
+
+function ProjectDetail({proj,allCrew,onBack,onUpdate,user}){
+  const [tab,setTab]=useState('overview');
+  const [tForm,setTForm]=useState(null);
+  const [sForm,setSForm]=useState(null);
+  const [confirmT,setConfirmT]=useState(null);
+  const [confirmS,setConfirmS]=useState(null);
+  const [drag,setDrag]=useState(false);
+  const fi=useRef();
+  const sc=SC[proj.status]||{bg:'#eee',color:'#555',bar:BLUE};
+  const cr=proj.crew?proj.crew.split(',').map(s=>s.trim()).filter(Boolean):[];
+  const pct=ppct(proj.tasks||[]);
+  const canEdit=can(user,'projects','edit');
+  const canUp=can(user,'documents','upload');
+  const canDel=can(user,'documents','delete');
+
+  const upd=patch=>onUpdate({...proj,...patch});
+  const saveTask=f=>{const t=proj.tasks||[];if(f.id){upd({tasks:t.map(x=>x.id===f.id?f:x)});}else{upd({tasks:[...t,{...f,id:nextId(t)}]});}setTForm(null);};
+  const delTask=id=>{upd({tasks:(proj.tasks||[]).filter(t=>t.id!==id)});setConfirmT(null);};
+  const saveSub=f=>{const s=proj.submittals||[];if(f.id){upd({submittals:s.map(x=>x.id===f.id?f:x)});}else{upd({submittals:[...s,{...f,id:nextId(s)}]});}setSForm(null);};
+  const delSub=id=>{upd({submittals:(proj.submittals||[]).filter(s=>s.id!==id)});setConfirmS(null);};
+  const addFiles=files=>upd({files:[...(proj.files||[]),...Array.from(files).map(f=>({id:Date.now()+Math.random(),name:f.name,size:f.size,type:f.type,date:new Date().toISOString().slice(0,10),url:URL.createObjectURL(f)}))]});
+
+  const subSC={'Approved':{bg:'#D4EDDA',color:'#155724'},'Pending Review':{bg:'#FFF3CD',color:'#856404'},'Revise & Resubmit':{bg:'#FFE5D0',color:'#7E3400'},'Rejected':{bg:'#FFEBEE',color:'#C62828'}};
+  const tabs=[{id:'overview',l:'Overview'},{id:'tasks',l:`Tasks (${(proj.tasks||[]).length})`},{id:'submittals',l:`Submittals (${(proj.submittals||[]).length})`},{id:'files',l:`Files (${(proj.files||[]).length})`},{id:'crew',l:`Crew (${cr.length})`}];
+
+  function TForm({init}){
+    const b={title:'',assignee:'',priority:'Medium',status:'Open',due:'',location:''};
+    const [f,setF]=useState(init||b);const s=(k,v)=>setF(p=>({...p,[k]:v}));
+    return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal'},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:16}},React.createElement('h2',{style:{fontSize:15,fontWeight:700,color:NAVY}},(init?'Edit':'Add')+' Task'),React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>setTForm(null)},'✕')),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Title'),React.createElement('input',{value:f.title,onChange:e=>s('title',e.target.value)}))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Assignee'),React.createElement('input',{value:f.assignee,onChange:e=>s('assignee',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Location'),React.createElement('input',{value:f.location,onChange:e=>s('location',e.target.value)}))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Priority'),React.createElement('select',{value:f.priority,onChange:e=>s('priority',e.target.value)},['Low','Medium','High','Critical'].map(x=>React.createElement('option',{key:x,value:x},x)))),React.createElement('div',{className:'field'},React.createElement('label',null,'Status'),React.createElement('select',{value:f.status,onChange:e=>s('status',e.target.value)},['Open','In Progress','Complete'].map(x=>React.createElement('option',{key:x,value:x},x))))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Due Date'),React.createElement('input',{type:'date',value:f.due,onChange:e=>s('due',e.target.value)})),React.createElement('div',{className:'field'})),
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setTForm(null)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:()=>saveTask(f)},'Save'))
+    ));
+  }
+  function SForm({init}){
+    const b={name:'',type:'Drawings',status:'Pending Review',date:new Date().toISOString().slice(0,10)};
+    const [f,setF]=useState(init||b);const s=(k,v)=>setF(p=>({...p,[k]:v}));
+    return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal'},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:16}},React.createElement('h2',{style:{fontSize:15,fontWeight:700,color:NAVY}},(init?'Edit':'Add')+' Submittal'),React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>setSForm(null)},'✕')),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Submittal Name'),React.createElement('input',{value:f.name,onChange:e=>s('name',e.target.value)}))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Type'),React.createElement('select',{value:f.type,onChange:e=>s('type',e.target.value)},['Drawings','Equipment','Controls','Schedule','Report','Other'].map(x=>React.createElement('option',{key:x,value:x},x)))),React.createElement('div',{className:'field'},React.createElement('label',null,'Status'),React.createElement('select',{value:f.status,onChange:e=>s('status',e.target.value)},['Pending Review','Approved','Revise & Resubmit','Rejected'].map(x=>React.createElement('option',{key:x,value:x},x))))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Date'),React.createElement('input',{type:'date',value:f.date,onChange:e=>s('date',e.target.value)})),React.createElement('div',{className:'field'})),
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setSForm(null)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:()=>saveSub(f)},'Save'))
+    ));
+  }
+
+  return React.createElement('div',{style:{minHeight:'100vh',background:'#F0F4FA'}},
+    confirmT&&React.createElement(Confirm,{msg:'Delete this task?',onY:()=>delTask(confirmT),onN:()=>setConfirmT(null)}),
+    confirmS&&React.createElement(Confirm,{msg:'Delete this submittal?',onY:()=>delSub(confirmS),onN:()=>setConfirmS(null)}),
+    tForm!==null&&React.createElement(TForm,{init:tForm===true?null:tForm}),
+    sForm!==null&&React.createElement(SForm,{init:sForm===true?null:sForm}),
+    React.createElement('input',{ref:fi,type:'file',multiple:true,style:{display:'none'},onChange:e=>addFiles(e.target.files)}),
+    // header
+    React.createElement('div',{style:{background:NAVY,padding:'16px 26px 0'}},
+      React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12,marginBottom:12}},
+        React.createElement('button',{onClick:onBack,style:{background:'rgba(255,255,255,0.1)',border:'none',color:'white',borderRadius:5,padding:'4px 11px',fontSize:12,cursor:'pointer'}},'← Projects'),
+        React.createElement('div',{style:{flex:1}},
+          React.createElement('div',{style:{display:'flex',alignItems:'center',gap:10}},React.createElement('div',{style:{fontSize:17,fontWeight:700,color:'white'}},proj.name),React.createElement(SBadge,{s:proj.status})),
+          React.createElement('div',{style:{color:'rgba(255,255,255,0.5)',fontSize:12,marginTop:2}},proj.jobNum,' · ',proj.customer)
+        )
+      ),
+      React.createElement('div',{style:{display:'flex',gap:1}},tabs.map(t=>React.createElement('button',{key:t.id,className:'tab-btn'+(tab===t.id?' active':''),onClick:()=>setTab(t.id),style:{color:tab===t.id?'white':'rgba(255,255,255,0.55)',borderBottomColor:tab===t.id?'white':'transparent'}},t.l)))
+    ),
+    // body
+    React.createElement('div',{style:{padding:'22px 26px'}},
+      tab==='overview'&&React.createElement('div',null,
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16}},
+          [['PM',proj.pm||'—'],['Foreman',proj.foreman||'—'],['Start',proj.start||'—'],['End',proj.end||'—']].map(([l,v])=>
+            React.createElement('div',{key:l,style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,padding:'11px 14px'}},React.createElement('div',{style:{fontSize:10,color:'#8A95AD',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.6px',marginBottom:3}},l),React.createElement('div',{style:{fontSize:13,fontWeight:600,color:NAVY}},v))
+          )
+        ),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1.4fr 1fr',gap:14}},
+          React.createElement('div',{style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,padding:'16px 18px'}},
+            React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:13,marginBottom:8}},'Project Notes'),
+            React.createElement('p',{style:{fontSize:13,color:'#4A5568',lineHeight:1.7}},proj.notes||'No notes yet.'),
+            React.createElement('div',{style:{marginTop:14}}),
+            React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:13,marginBottom:8}},'Task Progress'),
+            React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:5}},
+              React.createElement('span',{style:{fontSize:12,color:'#8A95AD'}},(proj.tasks||[]).filter(t=>t.status==='Complete').length+' of '+(proj.tasks||[]).length+' complete'),
+              React.createElement('span',{style:{fontWeight:700,color:NAVY,fontSize:12}},pct+'%')
+            ),
+            React.createElement('div',{style:{height:7,background:'#E8EDF5',borderRadius:99,overflow:'hidden'}},React.createElement('div',{style:{height:'100%',width:pct+'%',background:sc.bar,borderRadius:99}}))
+          ),
+          React.createElement('div',{style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,padding:'16px 18px'}},
+            React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:13,marginBottom:10}},'Quick Stats'),
+            [['Open Tasks',(proj.tasks||[]).filter(t=>t.status!=='Complete').length,'#C05000'],['Submittals',(proj.submittals||[]).length,BLUE],['Files',(proj.files||[]).length,'#6AAB9C'],['Crew',cr.length,NAVY]].map(([l,v,c])=>
+              React.createElement('div',{key:l,style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #F0F4FA',fontSize:13}},React.createElement('span',{style:{color:'#5A6480'}},l),React.createElement('span',{style:{fontWeight:700,color:c}},v))
+            )
+          )
+        )
+      ),
+      tab==='tasks'&&React.createElement('div',null,
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:14}},'Tasks'),
+          canEdit&&React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>setTForm(true)},'+ Add Task')
+        ),
+        React.createElement('div',{style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,overflow:'hidden'}},
+          React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:13}},
+            React.createElement('thead',null,React.createElement('tr',{style:{background:'#F6F9FF'}},['','Task','Assignee','Priority','Status','Due',''].map(h=>React.createElement('th',{key:h,style:{padding:'8px 12px',textAlign:'left',color:'#6B7A99',fontWeight:600,fontSize:10,textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #E8EDF5'}},h)))),
+            React.createElement('tbody',null,(proj.tasks||[]).map(t=>
+              React.createElement('tr',{key:t.id,className:'hover-row'},
+                React.createElement('td',{style:{padding:'9px 12px'}},React.createElement('input',{type:'checkbox',checked:t.status==='Complete',onChange:()=>canEdit&&upd({tasks:(proj.tasks||[]).map(x=>x.id===t.id?{...x,status:x.status==='Complete'?'Open':'Complete'}:x)})})),
+                React.createElement('td',{style:{padding:'9px 12px',color:t.status==='Complete'?'#8A95AD':NAVY,fontWeight:500,textDecoration:t.status==='Complete'?'line-through':'none'}},t.title,t.location&&React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginTop:1}},t.location)),
+                React.createElement('td',{style:{padding:'9px 12px',color:'#5A6480',fontSize:12}},t.assignee),
+                React.createElement('td',{style:{padding:'9px 12px'}},React.createElement('span',{style:{background:(PRIOC[t.priority]||'#ccc')+'22',color:PRIOC[t.priority]||'#ccc',borderRadius:4,padding:'2px 6px',fontSize:11,fontWeight:600}},t.priority)),
+                React.createElement('td',{style:{padding:'9px 12px'}},React.createElement('span',{style:{background:t.status==='Complete'?'#D4EDDA':t.status==='In Progress'?'#CCE5FF':'#F0F4FA',color:t.status==='Complete'?'#155724':t.status==='In Progress'?'#004085':'#5A6480',borderRadius:4,padding:'2px 6px',fontSize:11}},t.status)),
+                React.createElement('td',{style:{padding:'9px 12px',color:'#8A95AD',fontSize:12}},t.due),
+                canEdit&&React.createElement('td',{style:{padding:'9px 12px'}},React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'btn-icon',onClick:()=>setTForm(t)},'✏️'),React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirmT(t.id)},'🗑')))
+              )
+            ))
+          )
+        )
+      ),
+      tab==='submittals'&&React.createElement('div',null,
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:14}},'Submittals'),
+          canEdit&&React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>setSForm(true)},'+ Add')
+        ),
+        React.createElement('div',{style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,overflow:'hidden'}},
+          (proj.submittals||[]).length===0?React.createElement('div',{style:{padding:24,textAlign:'center',color:'#8A95AD',fontSize:13}},'No submittals yet.')
+          :(proj.submittals||[]).map(s=>{const sc2=subSC[s.status]||{bg:'#eee',color:'#555'};return React.createElement('div',{key:s.id,style:{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:'1px solid #F0F4FA'}},
+            React.createElement('span',{style:{fontSize:18}},'📋'),
+            React.createElement('div',{style:{flex:1}},React.createElement('div',{style:{fontSize:13,fontWeight:600,color:NAVY}},s.name),React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginTop:1}},s.type,' · ',s.date)),
+            React.createElement('span',{style:{...sc2,borderRadius:5,padding:'3px 9px',fontSize:11,fontWeight:700,flexShrink:0}},s.status),
+            canEdit&&React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'btn-icon',onClick:()=>setSForm(s)},'✏️'),React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirmS(s.id)},'🗑'))
+          );})
+        )
+      ),
+      tab==='files'&&React.createElement('div',null,
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:14}},'Project Files'),
+          canUp&&React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>fi.current.click()},'+ Upload')
+        ),
+        canUp&&React.createElement('div',{onDragOver:e=>{e.preventDefault();setDrag(true);},onDragLeave:()=>setDrag(false),onDrop:e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files);},onClick:()=>fi.current.click(),
+          style:{border:`2px dashed ${drag?BLUE:'#B8CCEC'}`,borderRadius:8,padding:18,textAlign:'center',cursor:'pointer',background:drag?LB:'#F6F9FF',marginBottom:12,fontSize:13,color:NAVY}},
+          'Drag & drop or click to upload'
+        ),
+        React.createElement('div',{style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,overflow:'hidden'}},
+          (proj.files||[]).length===0?React.createElement('div',{style:{padding:24,textAlign:'center',color:'#8A95AD',fontSize:13}},'No files uploaded yet.')
+          :(proj.files||[]).map(f=>React.createElement('div',{key:f.id,style:{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid #F0F4FA'}},
+            React.createElement('span',{style:{fontSize:18}},f.type?.includes('image')?'🖼':f.type?.includes('pdf')?'📋':'📄'),
+            React.createElement('div',{style:{flex:1}},React.createElement('a',{href:f.url,target:'_blank',style:{fontSize:13,fontWeight:500,color:BLUE,textDecoration:'none'}},f.name),React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginTop:1}},fmtSz(f.size),' · ',f.date)),
+            canDel&&React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>upd({files:(proj.files||[]).filter(x=>x.id!==f.id)})},'🗑')
+          ))
+        )
+      ),
+      tab==='crew'&&React.createElement('div',null,
+        React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:14,marginBottom:12}},'Assigned Crew'),
+        cr.length===0?React.createElement('div',{style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,padding:24,textAlign:'center',color:'#8A95AD',fontSize:13}},'No crew assigned yet.')
+        :React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}},
+          cr.map((name,i)=>{const p=allCrew.find(c=>c.name===name);const rc2=RC[p?.role]||{bg:'#eee',color:'#555'};return React.createElement('div',{key:i,style:{background:'white',border:'1px solid #E2E9F5',borderRadius:8,padding:'12px 14px'}},
+            React.createElement('div',{style:{display:'flex',gap:10,alignItems:'center',marginBottom:8}},
+              React.createElement('div',{style:{width:36,height:36,borderRadius:'50%',background:BLUE,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:11}},ini(name)),
+              React.createElement('div',null,React.createElement('div',{style:{fontWeight:600,color:NAVY,fontSize:13}},name),p&&React.createElement('span',{style:{...rc2,borderRadius:4,padding:'1px 5px',fontSize:10,fontWeight:600}},p.role))
+            ),
+            p&&React.createElement('div',null,React.createElement('div',{style:{fontSize:11,color:'#5A6480'}},p.phone),React.createElement('div',{style:{fontSize:11,color:BLUE}},p.email))
+          );})
+        )
+      )
+    )
+  );
+}
+
+function Projects({projects,setProjects,allCrew,user}){
+  const [filter,setFilter]=useState('All');
+  const [form,setForm]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [confirm,setConfirm]=useState(null);
+  const [detail,setDetail]=useState(null);
+  const statuses=['All','Bidding','Awarded','In Progress','Punch List','Complete','Closed'];
+  const visible=projects.filter(p=>projOk(user,p.id));
+  const filtered=filter==='All'?visible:visible.filter(p=>p.status===filter);
+  const save=f=>{if(editing){setProjects(ps=>ps.map(p=>p.id===editing.id?{...f,id:p.id,tasks:p.tasks,submittals:p.submittals,files:p.files}:p));}else{setProjects(ps=>[...ps,{...f,id:nextId(ps),tasks:[],submittals:[],files:[]}]);}setForm(false);setEditing(null);};
+  const del=id=>{setProjects(ps=>ps.filter(p=>p.id!==id));setConfirm(null);};
+  const upd=updated=>setProjects(ps=>ps.map(p=>p.id===updated.id?updated:p));
+  if(detail){const p=projects.find(x=>x.id===detail);if(p)return React.createElement(ProjectDetail,{proj:p,allCrew,onBack:()=>setDetail(null),onUpdate:upd,user});}
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    confirm&&React.createElement(Confirm,{msg:'Delete this project?',onY:()=>del(confirm),onN:()=>setConfirm(null)}),
+    (form||editing)&&React.createElement(ProjForm,{initial:editing,onSave:save,onClose:()=>{setForm(false);setEditing(null);}}),
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}},
+      React.createElement('div',null,React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'Projects'),React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},visible.length+' jobs — click a card to open')),
+      can(user,'projects','edit')&&React.createElement('button',{className:'btn btn-primary',onClick:()=>setForm(true)},'+ Add Project')
+    ),
+    React.createElement('div',{style:{display:'flex',gap:6,marginBottom:18,flexWrap:'wrap'}},
+      statuses.map(s=>{const cnt=s==='All'?visible.length:visible.filter(p=>p.status===s).length;return React.createElement('button',{key:s,className:'btn btn-ghost btn-sm',onClick:()=>setFilter(s),style:{background:filter===s?BLUE:'white',color:filter===s?'white':'#5A6480',border:`1px solid ${filter===s?BLUE:'#D0D9EC'}`,fontWeight:filter===s?600:400}},s+(cnt?` (${cnt})`:'')); })
+    ),
+    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}},
+      filtered.map(p=>React.createElement(ProjectCard,{key:p.id,proj:p,user,onClick:()=>setDetail(p.id),onEdit:e=>{e.stopPropagation();setEditing(p);},onDelete:e=>{e.stopPropagation();setConfirm(p.id);}}))
+    )
+  );
+}
+
+// ── INVENTORY ──
+function Inventory({inventory,setInventory,user,projects}){
+  const [form,setForm]=useState(false);const [editing,setEditing]=useState(null);const [confirm,setConfirm]=useState(null);const [search,setSearch]=useState('');
+  function nextLog(arr){const n=arr.map(i=>parseInt(i.logNum?.replace('INV-',''))||0);return 'INV-'+String((n.length?Math.max(...n):0)+1).padStart(3,'0');}
+  function IForm({init}){
+    const b={logNum:'',item:'',qty:'',project:PROJECTS_LIST[0],dateReceived:new Date().toISOString().slice(0,10),vendor:'',manufacturer:''};
+    const [f,setF]=useState(init||{...b,logNum:nextLog(inventory)});const s=(k,v)=>setF(p=>({...p,[k]:v}));
+    return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal'},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:16}},React.createElement('h2',{style:{fontSize:15,fontWeight:700,color:NAVY}},(init?'Edit':'Add')+' Item'),React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>{setForm(false);setEditing(null);}},'✕')),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Log #'),React.createElement('input',{value:f.logNum,onChange:e=>s('logNum',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Date Received'),React.createElement('input',{type:'date',value:f.dateReceived,onChange:e=>s('dateReceived',e.target.value)}))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Item Description'),React.createElement('input',{value:f.item,onChange:e=>s('item',e.target.value)}))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Quantity'),React.createElement('input',{type:'number',value:f.qty,onChange:e=>s('qty',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Manufacturer'),React.createElement('input',{value:f.manufacturer,onChange:e=>s('manufacturer',e.target.value)}))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Project'),React.createElement('select',{value:f.project,onChange:e=>s('project',e.target.value)},PROJECTS_LIST.map(p=>React.createElement('option',{key:p,value:p},p))))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Vendor / Supplier'),React.createElement('input',{value:f.vendor,onChange:e=>s('vendor',e.target.value)}))),
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}},React.createElement('button',{className:'btn btn-ghost',onClick:()=>{setForm(false);setEditing(null);}},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:()=>{save(f);}},'Save'))
+    ));
+  }
+  const save=f=>{if(editing){setInventory(ps=>ps.map(p=>p.id===editing.id?{...f,id:p.id,qty:Number(f.qty)}:p));}else{setInventory(ps=>[...ps,{...f,id:nextId(ps),qty:Number(f.qty)}]);}setForm(false);setEditing(null);};
+  const del=id=>{setInventory(ps=>ps.filter(p=>p.id!==id));setConfirm(null);};
+  const filtered=inventory.filter(i=>!search||i.item.toLowerCase().includes(search.toLowerCase())||i.logNum?.toLowerCase().includes(search.toLowerCase())||i.vendor?.toLowerCase().includes(search.toLowerCase()));
+  const canEdit=can(user,'inventory','edit');
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    confirm&&React.createElement(Confirm,{msg:'Delete this item?',onY:()=>del(confirm),onN:()=>setConfirm(null)}),
+    (form||editing)&&React.createElement(IForm,{init:editing}),
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}},
+      React.createElement('div',null,React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'Inventory Log'),React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},inventory.length+' items')),
+      React.createElement('div',{style:{display:'flex',gap:10}},
+        React.createElement('input',{value:search,onChange:e=>setSearch(e.target.value),placeholder:'Search items...',style:{padding:'6px 11px',border:'1px solid #D0D9EC',borderRadius:6,fontSize:13,width:200,outline:'none',background:'white'}}),
+        canEdit&&React.createElement('button',{className:'btn btn-primary',onClick:()=>{setEditing(null);setForm(true);}},'+ Add Item')
+      )
+    ),
+    React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:10,overflow:'hidden'}},
+      React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:13}},
+        React.createElement('thead',null,React.createElement('tr',{style:{background:'#F6F9FF'}},['Log #','Item','Qty','Project','Date Received','Vendor','Manufacturer',...(canEdit?['Actions']:[])].map(h=>React.createElement('th',{key:h,style:{padding:'9px 13px',textAlign:'left',color:'#6B7A99',fontWeight:600,fontSize:10,textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #E8EDF5',whiteSpace:'nowrap'}},h)))),
+        React.createElement('tbody',null,filtered.map(item=>React.createElement('tr',{key:item.id,className:'hover-row'},
+          React.createElement('td',{style:{padding:'10px 13px'}},React.createElement('span',{style:{fontFamily:'monospace',fontWeight:700,color:BLUE,fontSize:12}},item.logNum)),
+          React.createElement('td',{style:{padding:'10px 13px',color:NAVY,fontWeight:500,maxWidth:200}},item.item),
+          React.createElement('td',{style:{padding:'10px 13px',fontWeight:700,color:NAVY}},item.qty),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480',fontSize:12,maxWidth:180}},item.project),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480'}},item.dateReceived),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480'}},item.vendor),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480'}},item.manufacturer),
+          canEdit&&React.createElement('td',{style:{padding:'10px 13px'}},React.createElement('div',{style:{display:'flex',gap:5}},React.createElement('button',{className:'btn-icon',onClick:()=>setEditing(item)},'✏️'),React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirm(item.id)},'🗑')))
+        )))
+      )
+    )
+  );
+}
+
+// ── INVENTORY PULLS ──
+function InventoryPulls({pulls,setPulls,user}){
+  const [form,setForm]=useState(false);const [editing,setEditing]=useState(null);const [confirm,setConfirm]=useState(null);
+  function nextLog(arr){const n=arr.map(i=>parseInt(i.logNum?.replace('PUL-',''))||0);return 'PUL-'+String((n.length?Math.max(...n):0)+1).padStart(3,'0');}
+  function PForm({init}){
+    const b={logNum:'',item:'',pulledBy:'',datePulled:new Date().toISOString().slice(0,10),project:PROJECTS_LIST[0]};
+    const [f,setF]=useState(init||{...b,logNum:nextLog(pulls)});const s=(k,v)=>setF(p=>({...p,[k]:v}));
+    return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal'},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:16}},React.createElement('h2',{style:{fontSize:15,fontWeight:700,color:NAVY}},(init?'Edit':'New')+' Pull'),React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>{setForm(false);setEditing(null);}},'✕')),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Log #'),React.createElement('input',{value:f.logNum,onChange:e=>s('logNum',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Date Pulled'),React.createElement('input',{type:'date',value:f.datePulled,onChange:e=>s('datePulled',e.target.value)}))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Item'),React.createElement('input',{value:f.item,onChange:e=>s('item',e.target.value),placeholder:'e.g. R-410A Refrigerant x2'}))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Pulled By'),React.createElement('input',{value:f.pulledBy,onChange:e=>s('pulledBy',e.target.value)}))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Project'),React.createElement('select',{value:f.project,onChange:e=>s('project',e.target.value)},PROJECTS_LIST.map(p=>React.createElement('option',{key:p,value:p},p))))),
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}},React.createElement('button',{className:'btn btn-ghost',onClick:()=>{setForm(false);setEditing(null);}},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:()=>{save(f);}},'Save'))
+    ));
+  }
+  const save=f=>{if(editing){setPulls(ps=>ps.map(p=>p.id===editing.id?{...f,id:p.id}:p));}else{setPulls(ps=>[...ps,{...f,id:nextId(ps)}]);}setForm(false);setEditing(null);};
+  const del=id=>{setPulls(ps=>ps.filter(p=>p.id!==id));setConfirm(null);};
+  const canEdit=can(user,'pulls','edit');
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    confirm&&React.createElement(Confirm,{msg:'Delete this pull record?',onY:()=>del(confirm),onN:()=>setConfirm(null)}),
+    (form||editing)&&React.createElement(PForm,{init:editing}),
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}},
+      React.createElement('div',null,React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'Inventory Pulls'),React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},pulls.length+' pull records')),
+      canEdit&&React.createElement('button',{className:'btn btn-primary',onClick:()=>{setEditing(null);setForm(true);}},'+ New Pull')
+    ),
+    React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:10,overflow:'hidden'}},
+      React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:13}},
+        React.createElement('thead',null,React.createElement('tr',{style:{background:'#F6F9FF'}},['Log #','Item','Pulled By','Date Pulled','Project',...(canEdit?['Actions']:[])].map(h=>React.createElement('th',{key:h,style:{padding:'9px 13px',textAlign:'left',color:'#6B7A99',fontWeight:600,fontSize:10,textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #E8EDF5'}},h)))),
+        React.createElement('tbody',null,pulls.map(p=>React.createElement('tr',{key:p.id,className:'hover-row'},
+          React.createElement('td',{style:{padding:'10px 13px'}},React.createElement('span',{style:{fontFamily:'monospace',fontWeight:700,color:BLUE,fontSize:12}},p.logNum)),
+          React.createElement('td',{style:{padding:'10px 13px',color:NAVY,fontWeight:500,maxWidth:220}},p.item),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480'}},p.pulledBy),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480'}},p.datePulled),
+          React.createElement('td',{style:{padding:'10px 13px',color:'#5A6480',fontSize:12,maxWidth:200}},p.project),
+          canEdit&&React.createElement('td',{style:{padding:'10px 13px'}},React.createElement('div',{style:{display:'flex',gap:5}},React.createElement('button',{className:'btn-icon',onClick:()=>setEditing(p)},'✏️'),React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirm(p.id)},'🗑')))
+        )))
+      )
+    )
+  );
+}
+
+// ── CREW ──
+function Crew({crew,setCrew,user}){
+  const [form,setForm]=useState(false);const [editing,setEditing]=useState(null);const [confirm,setConfirm]=useState(null);const [filter,setFilter]=useState('All');
+  const roles=['All','Project Manager','Foreman','Mechanic','Apprentice','Sheet Metal','Controls Tech'];
+  const filtered=filter==='All'?crew:crew.filter(c=>c.role===filter);
+  function CForm({init}){
+    const b={name:'',role:'Mechanic',phone:'',email:'',certs:''};
+    const [f,setF]=useState(init||b);const s=(k,v)=>setF(p=>({...p,[k]:v}));
+    return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal'},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:16}},React.createElement('h2',{style:{fontSize:15,fontWeight:700,color:NAVY}},(init?'Edit':'Add')+' Member'),React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>{setForm(false);setEditing(null);}},'✕')),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Name'),React.createElement('input',{value:f.name,onChange:e=>s('name',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Role'),React.createElement('select',{value:f.role,onChange:e=>s('role',e.target.value)},roles.slice(1).map(r=>React.createElement('option',{key:r,value:r},r))))),
+      React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Phone'),React.createElement('input',{value:f.phone,onChange:e=>s('phone',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Email'),React.createElement('input',{value:f.email,onChange:e=>s('email',e.target.value)}))),
+      React.createElement('div',{className:'form-row full'},React.createElement('div',{className:'field'},React.createElement('label',null,'Certifications'),React.createElement('input',{value:f.certs,onChange:e=>s('certs',e.target.value)}))),
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}},React.createElement('button',{className:'btn btn-ghost',onClick:()=>{setForm(false);setEditing(null);}},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:()=>{save(f);}},'Save'))
+    ));
+  }
+  const save=f=>{if(editing){setCrew(ps=>ps.map(p=>p.id===editing.id?{...f,id:p.id}:p));}else{setCrew(ps=>[...ps,{...f,id:nextId(ps)}]);}setForm(false);setEditing(null);};
+  const del=id=>{setCrew(ps=>ps.filter(p=>p.id!==id));setConfirm(null);};
+  const canEdit=can(user,'crew','edit');
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    confirm&&React.createElement(Confirm,{msg:'Remove this member?',onY:()=>del(confirm),onN:()=>setConfirm(null)}),
+    (form||editing)&&React.createElement(CForm,{init:editing}),
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}},
+      React.createElement('div',null,React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'Crew & Personnel'),React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},crew.length+' members')),
+      canEdit&&React.createElement('button',{className:'btn btn-primary',onClick:()=>{setEditing(null);setForm(true);}},'+ Add Member')
+    ),
+    React.createElement('div',{style:{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}},roles.map(r=>React.createElement('button',{key:r,className:'btn btn-ghost btn-sm',onClick:()=>setFilter(r),style:{background:filter===r?BLUE:'white',color:filter===r?'white':'#5A6480',border:`1px solid ${filter===r?BLUE:'#D0D9EC'}`,fontWeight:filter===r?600:400}},r))),
+    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}},
+      filtered.map(c=>{const rc2=RC[c.role]||{bg:'#eee',color:'#555'};return React.createElement('div',{key:c.id,style:{background:'white',border:'1px solid #E8EDF5',borderRadius:8,padding:'13px 14px'}},
+        React.createElement('div',{style:{display:'flex',gap:10,alignItems:'center',marginBottom:9}},
+          React.createElement('div',{style:{width:38,height:38,borderRadius:'50%',background:LB,display:'flex',alignItems:'center',justifyContent:'center',color:NAVY,fontWeight:700,fontSize:12}},ini(c.name)),
+          React.createElement('div',null,React.createElement('div',{style:{fontWeight:600,color:NAVY,fontSize:13}},c.name),React.createElement('span',{style:{...rc2,borderRadius:4,padding:'1px 6px',fontSize:10,fontWeight:600}},c.role))
+        ),
+        React.createElement('div',{style:{fontSize:12,color:'#5A6480',marginBottom:2}},c.phone),
+        React.createElement('div',{style:{fontSize:12,color:BLUE,marginBottom:c.certs?6:0}},c.email),
+        c.certs&&React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginBottom:canEdit?8:0}},c.certs),
+        canEdit&&React.createElement('div',{style:{display:'flex',justifyContent:'flex-end',gap:4}},React.createElement('button',{className:'btn-icon',onClick:()=>setEditing(c)},'✏️'),React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirm(c.id)},'🗑'))
+      );})
+    )
+  );
+}
+
+// ── DOCUMENTS ──
+function Documents({documents,setDocuments,user}){
+  const [fType,setFType]=useState('All');const [drag,setDrag]=useState(false);const [confirm,setConfirm]=useState(null);
+  const fi=useRef();const fold=useRef();
+  const addFiles=files=>setDocuments(d=>[...d,...Array.from(files).map(f=>({id:Date.now()+Math.random(),name:f.name,size:f.size,type:f.type,docType:'Other',date:new Date().toISOString().slice(0,10),url:URL.createObjectURL(f),path:f.webkitRelativePath||f.name}))]);
+  const del=id=>{setDocuments(d=>d.filter(x=>x.id!==id));setConfirm(null);};
+  const visible=documents.filter(d=>fileOk(user,d.docType));
+  const filtered=fType==='All'?visible:visible.filter(d=>d.docType===fType);
+  const canUp=can(user,'documents','upload');const canDel=can(user,'documents','delete');
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    confirm&&React.createElement(Confirm,{msg:'Remove this document?',onY:()=>del(confirm),onN:()=>setConfirm(null)}),
+    React.createElement('input',{ref:fi,type:'file',multiple:true,style:{display:'none'},onChange:e=>addFiles(e.target.files)}),
+    React.createElement('input',{ref:fold,type:'file',multiple:true,webkitdirectory:'true',style:{display:'none'},onChange:e=>addFiles(e.target.files)}),
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}},
+      React.createElement('div',null,React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'Documents'),React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},visible.length+' files')),
+      canUp&&React.createElement('div',{style:{display:'flex',gap:8}},
+        React.createElement('button',{className:'btn btn-ghost',onClick:()=>fold.current.click()},'📁 Upload Folder'),
+        React.createElement('button',{className:'btn btn-primary',onClick:()=>fi.current.click()},'+ Upload Files')
+      )
+    ),
+    canUp&&React.createElement('div',{onDragOver:e=>{e.preventDefault();setDrag(true);},onDragLeave:()=>setDrag(false),onDrop:e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files);},onClick:()=>fi.current.click(),
+      style:{border:`2px dashed ${drag?BLUE:'#B8CCEC'}`,borderRadius:8,padding:'18px',textAlign:'center',cursor:'pointer',background:drag?LB:'#F6F9FF',marginBottom:14,fontSize:13,color:NAVY,fontWeight:500}},
+      'Drag & drop files or folders here'
+    ),
+    React.createElement('div',{style:{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}},
+      ['All',...DOC_TYPES].map(t=>React.createElement('button',{key:t,className:'btn btn-ghost btn-sm',onClick:()=>setFType(t),style:{background:fType===t?NAVY:'white',color:fType===t?'white':'#5A6480',border:`1px solid ${fType===t?NAVY:'#D0D9EC'}`,fontWeight:fType===t?600:400}},t))
+    ),
+    filtered.length===0?React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:8,padding:32,textAlign:'center',color:'#8A95AD',fontSize:13}},'No documents yet.')
+    :React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:8,overflow:'hidden'}},
+      filtered.map(doc=>React.createElement('div',{key:doc.id,style:{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:'1px solid #F0F4FA'}},
+        React.createElement('span',{style:{fontSize:18}},doc.type?.includes('image')?'🖼':doc.type?.includes('pdf')?'📋':'📄'),
+        React.createElement('div',{style:{flex:1}},React.createElement('a',{href:doc.url,target:'_blank',style:{fontSize:13,fontWeight:500,color:BLUE,textDecoration:'none'}},doc.name),React.createElement('div',{style:{fontSize:11,color:'#8A95AD',marginTop:1}},fmtSz(doc.size),' · ',doc.date)),
+        React.createElement('select',{value:doc.docType,onChange:e=>setDocuments(d=>d.map(x=>x.id===doc.id?{...x,docType:e.target.value}:x)),style:{padding:'3px 8px',border:'1px solid #D0D9EC',borderRadius:5,fontSize:12,fontFamily:'inherit'}},DOC_TYPES.map(t=>React.createElement('option',{key:t,value:t},t))),
+        canDel&&React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirm(doc.id)},'🗑')
+      ))
+    )
+  );
+}
+
+// ── USER MANAGEMENT ──
+const MODULES=[{id:'dashboard',label:'Dashboard',actions:['view']},{id:'projects',label:'Projects',actions:['view','edit']},{id:'inventory',label:'Inventory',actions:['view','edit']},{id:'pulls',label:'Inventory Pulls',actions:['view','edit']},{id:'crew',label:'Crew & Personnel',actions:['view','edit']},{id:'documents',label:'Documents',actions:['view','upload','delete']}];
+const ALL_ROLES=['Project Manager','Foreman','Field Technician','Guest','Office Staff'];
+
+function UserManagement({users,setUsers,currentUser,projects}){
+  const [form,setForm]=useState(false);const [editing,setEditing]=useState(null);const [confirm,setConfirm]=useState(null);const [uTab,setUTab]=useState('profile');
+
+  function UForm({init}){
+    const blank={username:'',password:'',name:'',role:'Field Technician',permissions:DEFAULT_PERMS()};
+    const [f,setF]=useState(init?JSON.parse(JSON.stringify(init)):blank);
+    const sp=(k,v)=>setF(p=>({...p,[k]:v}));
+    const setMod=(mod,act,val)=>setF(p=>{const perm=JSON.parse(JSON.stringify(p.permissions));perm.modules[mod][act]=val;return{...p,permissions:perm};});
+    const [showPw,setShowPw]=useState(false);
+    const [ftab,setFtab]=useState('profile');
+    const isAdmin=init?.role==='Admin';
+
+    const toggleProjAccess=pid=>{
+      const pa=f.permissions.projectAccess;
+      if(pa==='all'){setF(p=>({...p,permissions:{...p.permissions,projectAccess:[pid]}}))}
+      else{const arr=Array.isArray(pa)?pa:[];const next=arr.includes(pid)?arr.filter(x=>x!==pid):[...arr,pid];setF(p=>({...p,permissions:{...p.permissions,projectAccess:next.length===projects.length?'all':next}}));}
+    };
+    const toggleFileAccess=dt=>{
+      const fa=f.permissions.fileAccess;
+      if(fa==='all'){setF(p=>({...p,permissions:{...p.permissions,fileAccess:[dt]}}))}
+      else{const arr=Array.isArray(fa)?fa:[];const next=arr.includes(dt)?arr.filter(x=>x!==dt):[...arr,dt];setF(p=>({...p,permissions:{...p.permissions,fileAccess:next.length===DOC_TYPES.length?'all':next}}));}
+    };
+
+    return React.createElement('div',{className:'modal-overlay'},React.createElement('div',{className:'modal modal-lg',style:{maxWidth:620}},
+      React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}},
+        React.createElement('h2',{style:{fontSize:16,fontWeight:700,color:NAVY}},(init?'Edit User':'Add User')),
+        React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>{setForm(false);setEditing(null);}},'✕')
+      ),
+      // mini tabs
+      React.createElement('div',{style:{display:'flex',borderBottom:'1px solid #E8EDF5',marginBottom:18}},
+        [['profile','Profile'],['permissions','Module Permissions'],['access','Access Control']].map(([id,l])=>React.createElement('button',{key:id,className:'tab-btn'+(ftab===id?' active':''),onClick:()=>setFtab(id)},l))
+      ),
+
+      // PROFILE TAB
+      ftab==='profile'&&React.createElement('div',null,
+        React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Full Name'),React.createElement('input',{value:f.name,onChange:e=>sp('name',e.target.value)})),React.createElement('div',{className:'field'},React.createElement('label',null,'Role'),isAdmin?React.createElement('input',{value:'Admin',disabled:true,style:{background:'#F6F9FF'}}):React.createElement('select',{value:f.role,onChange:e=>sp('role',e.target.value)},ALL_ROLES.map(r=>React.createElement('option',{key:r,value:r},r))))),
+        React.createElement('div',{className:'form-row'},React.createElement('div',{className:'field'},React.createElement('label',null,'Username'),React.createElement('input',{value:f.username,onChange:e=>sp('username',e.target.value),disabled:isAdmin,style:isAdmin?{background:'#F6F9FF'}:{}})),React.createElement('div',{className:'field'},React.createElement('label',null,'Password'),React.createElement('div',{style:{position:'relative'}},React.createElement('input',{type:showPw?'text':'password',value:f.password,onChange:e=>sp('password',e.target.value),style:{paddingRight:44}}),React.createElement('button',{onClick:()=>setShowPw(!showPw),style:{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#8A95AD',fontSize:11,fontWeight:600}},showPw?'Hide':'Show')))),
+        isAdmin&&React.createElement('div',{style:{padding:'10px 12px',background:'#FFF3CD',borderRadius:6,fontSize:12,color:'#856404',marginTop:4}},'Admin account has full access to all modules and cannot be restricted.')
+      ),
+
+      // PERMISSIONS TAB
+      ftab==='permissions'&&React.createElement('div',null,
+        isAdmin?React.createElement('div',{style:{padding:'16px',background:'#D4EDDA',borderRadius:8,fontSize:13,color:'#155724',textAlign:'center'}},'Admin has full permissions to all modules.')
+        :React.createElement('table',{className:'perm-table'},
+          React.createElement('thead',null,React.createElement('tr',null,
+            React.createElement('th',null,'Module'),
+            React.createElement('th',{style:{textAlign:'center'}},'Can View'),
+            React.createElement('th',{style:{textAlign:'center'}},'Add / Edit / Delete'),
+            React.createElement('th',{style:{textAlign:'center'}},'Upload Files'),
+            React.createElement('th',{style:{textAlign:'center'}},'Delete Files')
+          )),
+          React.createElement('tbody',null,MODULES.map(m=>React.createElement('tr',{key:m.id},
+            React.createElement('td',{style:{fontWeight:500}},m.label),
+            React.createElement('td',{style:{textAlign:'center'}},React.createElement('input',{type:'checkbox',checked:!!f.permissions.modules[m.id]?.view,onChange:e=>setMod(m.id,'view',e.target.checked)})),
+            React.createElement('td',{style:{textAlign:'center'}},m.actions.includes('edit')?React.createElement('input',{type:'checkbox',checked:!!f.permissions.modules[m.id]?.edit,onChange:e=>setMod(m.id,'edit',e.target.checked)}):React.createElement('span',{style:{color:'#D0D9EC'}},'—')),
+            React.createElement('td',{style:{textAlign:'center'}},m.actions.includes('upload')?React.createElement('input',{type:'checkbox',checked:!!f.permissions.modules[m.id]?.upload,onChange:e=>setMod(m.id,'upload',e.target.checked)}):React.createElement('span',{style:{color:'#D0D9EC'}},'—')),
+            React.createElement('td',{style:{textAlign:'center'}},m.actions.includes('delete')?React.createElement('input',{type:'checkbox',checked:!!f.permissions.modules[m.id]?.delete,onChange:e=>setMod(m.id,'delete',e.target.checked)}):React.createElement('span',{style:{color:'#D0D9EC'}},'—'))
+          )))
+        )
+      ),
+
+      // ACCESS TAB
+      ftab==='access'&&React.createElement('div',null,
+        isAdmin?React.createElement('div',{style:{padding:'16px',background:'#D4EDDA',borderRadius:8,fontSize:13,color:'#155724',textAlign:'center'}},'Admin has access to all projects and file types.')
+        :React.createElement('div',null,
+          React.createElement('div',{style:{marginBottom:18}},
+            React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:13,marginBottom:10}},'Project Access'),
+            React.createElement('label',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:10,fontSize:13,cursor:'pointer'}},
+              React.createElement('input',{type:'checkbox',checked:f.permissions.projectAccess==='all',onChange:e=>{setF(p=>({...p,permissions:{...p.permissions,projectAccess:e.target.checked?'all':[]}}));}}),
+              React.createElement('span',{style:{fontWeight:600,color:NAVY}},'All Projects')
+            ),
+            f.permissions.projectAccess!=='all'&&React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,paddingLeft:4}},
+              projects.map(p=>React.createElement('label',{key:p.id,style:{display:'flex',alignItems:'center',gap:7,fontSize:12,cursor:'pointer',padding:'5px 8px',background:((f.permissions.projectAccess||[]).includes(p.id))?LB:'#F9FAFC',borderRadius:5,border:'1px solid #E8EDF5'}},
+                React.createElement('input',{type:'checkbox',checked:(Array.isArray(f.permissions.projectAccess)&&f.permissions.projectAccess.includes(p.id)),onChange:()=>toggleProjAccess(p.id)}),
+                React.createElement('span',{style:{color:NAVY,lineHeight:1.3}},p.jobNum,' ',p.name)
+              ))
+            )
+          ),
+          React.createElement('div',null,
+            React.createElement('div',{style:{fontWeight:700,color:NAVY,fontSize:13,marginBottom:10}},'File / Folder Access'),
+            React.createElement('label',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:10,fontSize:13,cursor:'pointer'}},
+              React.createElement('input',{type:'checkbox',checked:f.permissions.fileAccess==='all',onChange:e=>{setF(p=>({...p,permissions:{...p.permissions,fileAccess:e.target.checked?'all':[]}}));}}),
+              React.createElement('span',{style:{fontWeight:600,color:NAVY}},'All File Types')
+            ),
+            f.permissions.fileAccess!=='all'&&React.createElement('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+              DOC_TYPES.map(dt=>React.createElement('label',{key:dt,style:{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:'pointer',padding:'4px 10px',background:(Array.isArray(f.permissions.fileAccess)&&f.permissions.fileAccess.includes(dt))?LB:'#F9FAFC',borderRadius:5,border:'1px solid #E8EDF5'}},
+                React.createElement('input',{type:'checkbox',checked:Array.isArray(f.permissions.fileAccess)&&f.permissions.fileAccess.includes(dt),onChange:()=>toggleFileAccess(dt)}),dt
+              ))
+            )
+          )
+        )
+      ),
+
+      React.createElement('div',{style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:20,borderTop:'1px solid #E8EDF5',paddingTop:16}},
+        React.createElement('button',{className:'btn btn-ghost',onClick:()=>{setForm(false);setEditing(null);}},'Cancel'),
+        React.createElement('button',{className:'btn btn-primary',onClick:()=>save(f)},'Save User')
+      )
+    ));
+  }
+
+  const save=f=>{if(editing){setUsers(ps=>ps.map(p=>p.id===editing.id?{...f,id:p.id}:p));}else{setUsers(ps=>[...ps,{...f,id:nextId(ps)}]);}setForm(false);setEditing(null);};
+  const del=id=>{setUsers(ps=>ps.filter(p=>p.id!==id));setConfirm(null);};
+
+  return React.createElement('div',{style:{padding:'22px 26px'}},
+    confirm&&React.createElement(Confirm,{msg:'Delete this user account?',onY:()=>del(confirm),onN:()=>setConfirm(null)}),
+    (form||editing)&&React.createElement(UForm,{init:editing}),
+    React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}},
+      React.createElement('div',null,
+        React.createElement('h1',{style:{fontSize:21,fontWeight:700,color:NAVY}},'User Management'),
+        React.createElement('p',{style:{color:'#8A95AD',fontSize:13,marginTop:2}},'Manage accounts and access permissions')
+      ),
+      React.createElement('button',{className:'btn btn-primary',onClick:()=>{setEditing(null);setForm(true);}},'+ Add User')
+    ),
+    React.createElement('div',{style:{background:'white',border:'1px solid #E8EDF5',borderRadius:10,overflow:'hidden'}},
+      React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:13}},
+        React.createElement('thead',null,React.createElement('tr',{style:{background:'#F6F9FF'}},['Name','Username','Role','Module Access','Project Access','File Access','Actions'].map(h=>React.createElement('th',{key:h,style:{padding:'9px 14px',textAlign:'left',color:'#6B7A99',fontWeight:600,fontSize:10,textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #E8EDF5'}},h)))),
+        React.createElement('tbody',null,users.map(u=>
+          React.createElement('tr',{key:u.id,className:'hover-row'},
+            React.createElement('td',{style:{padding:'11px 14px'}},
+              React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+                React.createElement('div',{style:{width:32,height:32,borderRadius:'50%',background:u.id===currentUser.id?BLUE:LB,display:'flex',alignItems:'center',justifyContent:'center',color:u.id===currentUser.id?'white':NAVY,fontWeight:700,fontSize:11}},ini(u.name)),
+                React.createElement('div',null,React.createElement('div',{style:{fontWeight:600,color:NAVY}},u.name),u.id===currentUser.id&&React.createElement('span',{style:{fontSize:10,color:'#8A95AD'}},'(you)'))
+              )
+            ),
+            React.createElement('td',{style:{padding:'11px 14px',fontFamily:'monospace',color:'#5A6480',fontSize:12}},u.username),
+            React.createElement('td',{style:{padding:'11px 14px'}},React.createElement(RBadge,{r:u.role})),
+            React.createElement('td',{style:{padding:'11px 14px',fontSize:12,color:'#5A6480'}},
+              u.role==='Admin'?React.createElement('span',{style:{color:'#2E7D32',fontWeight:600}},'Full Access')
+              :MODULES.filter(m=>u.permissions?.modules?.[m.id]?.view).map(m=>m.label).join(', ')||React.createElement('span',{style:{color:'#C62828'}},'None')
+            ),
+            React.createElement('td',{style:{padding:'11px 14px',fontSize:12,color:'#5A6480'}},u.role==='Admin'?'All':u.permissions?.projectAccess==='all'?'All Projects':'Specific ('+((u.permissions?.projectAccess)||[]).length+')'),
+            React.createElement('td',{style:{padding:'11px 14px',fontSize:12,color:'#5A6480'}},u.role==='Admin'?'All':u.permissions?.fileAccess==='all'?'All Types':'Specific ('+((u.permissions?.fileAccess)||[]).length+')'),
+            React.createElement('td',{style:{padding:'11px 14px'}},
+              React.createElement('div',{style:{display:'flex',gap:5}},
+                React.createElement('button',{className:'btn-icon',onClick:()=>setEditing(u)},'✏️'),
+                u.id!==currentUser.id&&u.role!=='Admin'&&React.createElement('button',{className:'btn-icon',style:{borderColor:'#FFCDD2',color:'#C62828'},onClick:()=>setConfirm(u.id)},'🗑')
+              )
+            )
+          )
+        ))
+      )
+    )
+  );
+}
+
+// ── APP ──
+function App(){
+  const [users,setUsers]=useState(initUsers);
+  const [currentUser,setCurrentUser]=useState(null);
+  const [active,setActive]=useState('dashboard');
+  const [projects,setProjects]=useState(initProjects);
+  const [inventory,setInventory]=useState(initInventory);
+  const [pulls,setPulls]=useState(initPulls);
+  const [crew,setCrew]=useState(initCrew);
+  const [documents,setDocuments]=useState([]);
+
+  if(!currentUser)return React.createElement(LoginScreen,{users,onLogin:u=>{setCurrentUser(u);setActive('dashboard');}});
+
+  // sync currentUser if users list updates
+  const liveUser=users.find(u=>u.id===currentUser.id)||currentUser;
+
+  return React.createElement('div',{style:{display:'flex',height:'100vh',background:'#F0F4FA',fontFamily:"'Segoe UI',sans-serif",overflow:'hidden'}},
+    React.createElement(Sidebar,{active,setActive,user:liveUser,onLogout:()=>{setCurrentUser(null);setActive('dashboard');}}),
+    React.createElement('div',{style:{flex:1,overflowY:'auto'}},
+      active==='dashboard'&&React.createElement(Dashboard,{projects,inventory,pulls,user:liveUser}),
+      active==='projects'&&can(liveUser,'projects','view')&&React.createElement(Projects,{projects,setProjects,allCrew:crew,user:liveUser}),
+      active==='inventory'&&can(liveUser,'inventory','view')&&React.createElement(Inventory,{inventory,setInventory,user:liveUser,projects}),
+      active==='pulls'&&can(liveUser,'pulls','view')&&React.createElement(InventoryPulls,{pulls,setPulls,user:liveUser}),
+      active==='crew'&&can(liveUser,'crew','view')&&React.createElement(Crew,{crew,setCrew,user:liveUser}),
+      active==='documents'&&can(liveUser,'documents','view')&&React.createElement(Documents,{documents,setDocuments,user:liveUser}),
+      active==='users'&&liveUser.role==='Admin'&&React.createElement(UserManagement,{users,setUsers,currentUser:liveUser,projects})
+    )
+  );
+}
+ReactDOM.render(React.createElement(App),document.getElementById('root'));
+</script>
